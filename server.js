@@ -24,7 +24,6 @@ app.use(session({
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
-
 // Database functions
 const loadDB = () => {
   try {
@@ -83,7 +82,6 @@ const initializeDB = async () => {
     }
   }
 };
-
 
 // Authentication middleware
 const requireAuth = (req, res, next) => {
@@ -163,7 +161,6 @@ app.get('/logout', (req, res) => {
   res.redirect('/login');
 });
 
-
 // Admin routes
 app.get('/admin/dashboard', requireAuth, requireAdmin, (req, res) => {
   const db = loadDB();
@@ -234,7 +231,6 @@ app.post('/admin/user/update/:id', requireAuth, requireAdmin, async (req, res) =
   res.redirect('/admin/user');
 });
 
-
 app.get('/admin/code', requireAuth, requireAdmin, (req, res) => {
   const db = loadDB();
   res.render('admin/repositories', { 
@@ -275,7 +271,6 @@ app.get('/admin/code/info/:id', requireAuth, requireAdmin, (req, res) => {
     currentPath: ''
   });
 });
-
 
 app.get('/admin/code/info/:id/*', requireAuth, requireAdmin, (req, res) => {
   const db = loadDB();
@@ -454,5 +449,152 @@ app.get('/dev/code/info/:id', requireAuth, (req, res) => {
     files,
     currentPath: ''
   });
+});
+
+app.get('/dev/code/info/:id/*', requireAuth, (req, res) => {
+  const db = loadDB();
+  const repoId = parseInt(req.params.id);
+  const subPath = req.params[0];
+  const repository = db.repositories.find(r => r.id === repoId);
+  
+  if (!repository) {
+    return res.status(404).send('Repository not found');
+  }
+  
+  const fullPath = path.join(__dirname, 'uploads', repoId.toString(), subPath);
+  
+  if (!fs.existsSync(fullPath)) {
+    return res.status(404).send('Path not found');
+  }
+  
+  const stats = fs.statSync(fullPath);
+  
+  if (stats.isDirectory()) {
+    let files = [];
+    files = fs.readdirSync(fullPath).map(file => {
+      const filePath = path.join(fullPath, file);
+      const fileStats = fs.statSync(filePath);
+      return {
+        name: file,
+        isDirectory: fileStats.isDirectory(),
+        size: fileStats.size,
+        modified: fileStats.mtime
+      };
+    });
+    
+    res.render('dev/repository-info', { 
+      user: req.session.user, 
+      repository,
+      files,
+      currentPath: subPath
+    });
+  } else {
+    const content = fs.readFileSync(fullPath, 'utf8');
+    res.render('dev/file-view', {
+      user: req.session.user,
+      repository,
+      filename: path.basename(subPath),
+      content,
+      currentPath: path.dirname(subPath)
+    });
+  }
+});
+
+app.get('/dev/upload/code/:id', requireAuth, (req, res) => {
+  const db = loadDB();
+  const repoId = parseInt(req.params.id);
+  const currentPath = req.query.path || '';
+  const repository = db.repositories.find(r => r.id === repoId);
+  
+  if (!repository) {
+    return res.status(404).send('Repository not found');
+  }
+  
+  res.render('dev/upload', { 
+    user: req.session.user, 
+    repository,
+    currentPath
+  });
+});
+
+app.post('/dev/upload/code/:id', requireAuth, (req, res) => {
+  const repoId = req.params.id;
+  const currentPath = req.query.path || '';
+  const uploadPath = path.join(__dirname, 'uploads', repoId, currentPath);
+  
+  const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+      if (!fs.existsSync(uploadPath)) {
+        fs.mkdirSync(uploadPath, { recursive: true });
+      }
+      cb(null, uploadPath);
+    },
+    filename: (req, file, cb) => {
+      cb(null, file.originalname);
+    }
+  });
+  
+  const uploadFiles = multer({ storage }).array('files');
+  
+  uploadFiles(req, res, (err) => {
+    if (err) {
+      return res.status(500).send('Upload failed');
+    }
+    
+    if (currentPath) {
+      res.redirect(`/dev/code/info/${repoId}/${currentPath}`);
+    } else {
+      res.redirect(`/dev/code/info/${repoId}`);
+    }
+  });
+});
+
+app.get('/dev/download/code/:id', requireAuth, (req, res) => {
+  const db = loadDB();
+  const repoId = parseInt(req.params.id);
+  const repository = db.repositories.find(r => r.id === repoId);
+  
+  if (!repository) {
+    return res.status(404).send('Repository not found');
+  }
+  
+  const repoPath = path.join(__dirname, 'uploads', repoId.toString());
+  
+  if (!fs.existsSync(repoPath)) {
+    return res.status(404).send('Repository files not found');
+  }
+  
+  const archive = archiver('zip', {
+    zlib: { level: 9 }
+  });
+  
+  res.attachment(`${repository.name}.zip`);
+  archive.pipe(res);
+  
+  archive.directory(repoPath, false);
+  archive.finalize();
+});
+
+// Create necessary directories
+if (!fs.existsSync('uploads')) {
+  fs.mkdirSync('uploads');
+}
+
+if (!fs.existsSync('views')) {
+  fs.mkdirSync('views');
+}
+
+if (!fs.existsSync('public')) {
+  fs.mkdirSync('public');
+}
+
+
+// Initialize database and start server
+initializeDB().then(() => {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on http://0.0.0.0:${PORT}`);
+  });
+}).catch(err => {
+  console.error('Failed to initialize database:', err);
 });
 
