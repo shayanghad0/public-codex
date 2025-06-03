@@ -83,3 +83,83 @@ const initializeDB = async () => {
     }
   }
 };
+
+
+// Authentication middleware
+const requireAuth = (req, res, next) => {
+  if (!req.session.user) {
+    return res.redirect('/login');
+  }
+  next();
+};
+
+const requireAdmin = (req, res, next) => {
+  if (!req.session.user || req.session.user.role !== 'admin') {
+    return res.status(403).send('Access denied');
+  }
+  next();
+};
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const repoId = req.params.id;
+    const uploadPath = path.join(__dirname, 'uploads', repoId);
+    if (!fs.existsSync(uploadPath)) {
+      fs.mkdirSync(uploadPath, { recursive: true });
+    }
+    cb(null, uploadPath);
+  },
+  filename: (req, file, cb) => {
+    cb(null, file.originalname);
+  }
+});
+
+const upload = multer({ storage });
+
+// Routes
+app.get('/', (req, res) => {
+  if (req.session.user) {
+    if (req.session.user.role === 'admin') {
+      return res.redirect('/admin/dashboard');
+    } else {
+      return res.redirect('/dev/dashboard');
+    }
+  }
+  res.redirect('/login');
+});
+
+app.get('/login', (req, res) => {
+  res.render('login');
+});
+
+app.post('/login', async (req, res) => {
+  const { username, password, rememberMe } = req.body;
+  const db = loadDB();
+  const user = db.users.find(u => u.username === username);
+  
+  if (user && await verifyPassword(password, user.password)) {
+    req.session.user = user;
+    
+    // Extend session duration if Remember Me is checked
+    if (rememberMe) {
+      req.session.cookie.maxAge = 30 * 24 * 60 * 60 * 1000; // 30 days
+    } else {
+      req.session.cookie.maxAge = 24 * 60 * 60 * 1000; // 1 day
+    }
+    
+    if (user.role === 'admin') {
+      res.redirect('/admin/dashboard');
+    } else {
+      res.redirect('/dev/dashboard');
+    }
+  } else {
+    res.render('login', { error: 'Invalid credentials' });
+  }
+});
+
+app.get('/logout', (req, res) => {
+  req.session.destroy();
+  res.redirect('/login');
+});
+
