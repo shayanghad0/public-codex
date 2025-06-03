@@ -276,3 +276,89 @@ app.get('/admin/code/info/:id', requireAuth, requireAdmin, (req, res) => {
   });
 });
 
+
+app.get('/admin/code/info/:id/*', requireAuth, requireAdmin, (req, res) => {
+  const db = loadDB();
+  const repoId = parseInt(req.params.id);
+  const subPath = req.params[0];
+  const repository = db.repositories.find(r => r.id === repoId);
+  
+  if (!repository) {
+    return res.status(404).send('Repository not found');
+  }
+  
+  const fullPath = path.join(__dirname, 'uploads', repoId.toString(), subPath);
+  
+  if (!fs.existsSync(fullPath)) {
+    return res.status(404).send('Path not found');
+  }
+  
+  const stats = fs.statSync(fullPath);
+  
+  if (stats.isDirectory()) {
+    let files = [];
+    files = fs.readdirSync(fullPath).map(file => {
+      const filePath = path.join(fullPath, file);
+      const fileStats = fs.statSync(filePath);
+      return {
+        name: file,
+        isDirectory: fileStats.isDirectory(),
+        size: fileStats.size,
+        modified: fileStats.mtime
+      };
+    });
+    
+    res.render('admin/repository-info', { 
+      user: req.session.user, 
+      repository,
+      files,
+      currentPath: subPath
+    });
+  } else {
+    const content = fs.readFileSync(fullPath, 'utf8');
+    res.render('admin/file-view', {
+      user: req.session.user,
+      repository,
+      filename: path.basename(subPath),
+      content,
+      currentPath: path.dirname(subPath)
+    });
+  }
+});
+
+app.post('/admin/code/create', requireAuth, requireAdmin, (req, res) => {
+  const { name, description } = req.body;
+  const db = loadDB();
+  
+  const newRepo = {
+    id: Math.max(...db.repositories.map(r => r.id), 0) + 1,
+    name,
+    description,
+    createdAt: new Date().toISOString(),
+    createdBy: req.session.user.id
+  };
+  
+  db.repositories.push(newRepo);
+  saveDB(db);
+  
+  res.redirect('/admin/code');
+});
+
+app.post('/admin/create-folder/:id', requireAuth, requireAdmin, (req, res) => {
+  const repoId = req.params.id;
+  const { folderName } = req.body;
+  const currentPath = req.query.path || '';
+  
+  const folderPath = path.join(__dirname, 'uploads', repoId, currentPath, folderName);
+  
+  if (!fs.existsSync(folderPath)) {
+    fs.mkdirSync(folderPath, { recursive: true });
+  }
+  
+  if (currentPath) {
+    res.redirect(`/admin/code/info/${repoId}/${currentPath}`);
+  } else {
+    res.redirect(`/admin/code/info/${repoId}`);
+  }
+});
+
