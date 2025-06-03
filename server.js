@@ -233,3 +233,46 @@ app.post('/admin/user/update/:id', requireAuth, requireAdmin, async (req, res) =
   saveDB(db);
   res.redirect('/admin/user');
 });
+
+
+app.get('/admin/code', requireAuth, requireAdmin, (req, res) => {
+  const db = loadDB();
+  res.render('admin/repositories', { 
+    user: req.session.user, 
+    repositories: db.repositories 
+  });
+});
+
+app.get('/admin/code/info/:id', requireAuth, requireAdmin, (req, res) => {
+  const db = loadDB();
+  const repoId = parseInt(req.params.id);
+  const repository = db.repositories.find(r => r.id === repoId);
+  
+  if (!repository) {
+    return res.status(404).send('Repository not found');
+  }
+  
+  const repoPath = path.join(__dirname, 'uploads', repoId.toString());
+  let files = [];
+  
+  if (fs.existsSync(repoPath)) {
+    files = fs.readdirSync(repoPath).map(file => {
+      const filePath = path.join(repoPath, file);
+      const stats = fs.statSync(filePath);
+      return {
+        name: file,
+        isDirectory: stats.isDirectory(),
+        size: stats.size,
+        modified: stats.mtime
+      };
+    });
+  }
+  
+  res.render('admin/repository-info', { 
+    user: req.session.user, 
+    repository,
+    files,
+    currentPath: ''
+  });
+});
+
