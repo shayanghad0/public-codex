@@ -362,3 +362,97 @@ app.post('/admin/create-folder/:id', requireAuth, requireAdmin, (req, res) => {
   }
 });
 
+app.post('/dev/create-folder/:id', requireAuth, (req, res) => {
+  const repoId = req.params.id;
+  const { folderName } = req.body;
+  const currentPath = req.query.path || '';
+  
+  const folderPath = path.join(__dirname, 'uploads', repoId, currentPath, folderName);
+  
+  if (!fs.existsSync(folderPath)) {
+    fs.mkdirSync(folderPath, { recursive: true });
+  }
+  
+  if (currentPath) {
+    res.redirect(`/dev/code/info/${repoId}/${currentPath}`);
+  } else {
+    res.redirect(`/dev/code/info/${repoId}`);
+  }
+});
+
+app.get('/admin/download/code/:id', requireAuth, requireAdmin, (req, res) => {
+  const db = loadDB();
+  const repoId = parseInt(req.params.id);
+  const repository = db.repositories.find(r => r.id === repoId);
+  
+  if (!repository) {
+    return res.status(404).send('Repository not found');
+  }
+  
+  const repoPath = path.join(__dirname, 'uploads', repoId.toString());
+  
+  if (!fs.existsExists(repoPath)) {
+    return res.status(404).send('Repository files not found');
+  }
+  
+  const archive = archiver('zip', {
+    zlib: { level: 9 }
+  });
+  
+  res.attachment(`${repository.name}.zip`);
+  archive.pipe(res);
+  
+  archive.directory(repoPath, false);
+  archive.finalize();
+});
+
+// Developer routes
+app.get('/dev/dashboard', requireAuth, (req, res) => {
+  const db = loadDB();
+  res.render('dev/dashboard', { 
+    user: req.session.user, 
+    repositories: db.repositories 
+  });
+});
+
+app.get('/dev/code', requireAuth, (req, res) => {
+  const db = loadDB();
+  res.render('dev/repositories', { 
+    user: req.session.user, 
+    repositories: db.repositories 
+  });
+});
+
+app.get('/dev/code/info/:id', requireAuth, (req, res) => {
+  const db = loadDB();
+  const repoId = parseInt(req.params.id);
+  const repository = db.repositories.find(r => r.id === repoId);
+  
+  if (!repository) {
+    return res.status(404).send('Repository not found');
+  }
+  
+  const repoPath = path.join(__dirname, 'uploads', repoId.toString());
+  let files = [];
+  
+  if (fs.existsSync(repoPath)) {
+    files = fs.readdirSync(repoPath).map(file => {
+      const filePath = path.join(repoPath, file);
+      const stats = fs.statSync(filePath);
+      return {
+        name: file,
+        isDirectory: stats.isDirectory(),
+        size: stats.size,
+        modified: stats.mtime
+      };
+    });
+  }
+  
+  res.render('dev/repository-info', { 
+    user: req.session.user, 
+    repository,
+    files,
+    currentPath: ''
+  });
+});
+
