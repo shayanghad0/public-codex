@@ -163,3 +163,73 @@ app.get('/logout', (req, res) => {
   res.redirect('/login');
 });
 
+
+// Admin routes
+app.get('/admin/dashboard', requireAuth, requireAdmin, (req, res) => {
+  const db = loadDB();
+  res.render('admin/dashboard', { 
+    user: req.session.user, 
+    users: db.users,
+    repositories: db.repositories 
+  });
+});
+
+app.get('/admin/user', requireAuth, requireAdmin, (req, res) => {
+  const db = loadDB();
+  res.render('admin/users', { 
+    user: req.session.user, 
+    users: db.users.filter(u => u.role === 'developer') 
+  });
+});
+
+app.get('/admin/user/manage/:id', requireAuth, requireAdmin, (req, res) => {
+  const db = loadDB();
+  const userId = parseInt(req.params.id);
+  const targetUser = db.users.find(u => u.id === userId);
+  
+  if (!targetUser) {
+    return res.status(404).send('User not found');
+  }
+  
+  res.render('admin/manage-user', { 
+    user: req.session.user, 
+    targetUser 
+  });
+});
+
+app.post('/admin/user/create', requireAuth, requireAdmin, async (req, res) => {
+  const { username, password } = req.body;
+  const db = loadDB();
+  
+  const newUser = {
+    id: Math.max(...db.users.map(u => u.id), 0) + 1,
+    username,
+    password: await hashPassword(password),
+    role: 'developer',
+    createdAt: new Date().toISOString()
+  };
+  
+  db.users.push(newUser);
+  saveDB(db);
+  
+  res.redirect('/admin/user');
+});
+
+app.post('/admin/user/update/:id', requireAuth, requireAdmin, async (req, res) => {
+  const { username, password } = req.body;
+  const db = loadDB();
+  const userId = parseInt(req.params.id);
+  const userIndex = db.users.findIndex(u => u.id === userId);
+  
+  if (userIndex === -1) {
+    return res.status(404).send('User not found');
+  }
+  
+  db.users[userIndex].username = username;
+  if (password && password.trim() !== '') {
+    db.users[userIndex].password = await hashPassword(password);
+  }
+  
+  saveDB(db);
+  res.redirect('/admin/user');
+});
